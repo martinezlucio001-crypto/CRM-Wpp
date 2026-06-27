@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { THEMES } from '@/lib/themes';
-import { CURRENCIES } from '@/lib/currency';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -22,7 +21,6 @@ interface OverviewCounts {
   templates: number | null;
   templatesPending: number | null;
   tags: number | null;
-  customFields: number | null;
 }
 
 interface WhatsAppStatus {
@@ -58,7 +56,7 @@ export function SettingsOverview({
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
+      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes] =
         await Promise.allSettled([
           fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
           canManageMembers
@@ -79,7 +77,6 @@ export function SettingsOverview({
             .from('tags')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', userId),
-          supabase.from('custom_fields').select('id', { count: 'exact', head: true }),
         ]);
 
       if (cancelled) return;
@@ -107,8 +104,6 @@ export function SettingsOverview({
             ? templatesPending.value.count ?? null
             : null,
         tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? null : null,
-        customFields:
-          fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? null : null,
       });
       setCountsLoading(false);
     })();
@@ -137,15 +132,21 @@ export function SettingsOverview({
     };
   }, [user, accountId, canManageMembers]);
 
-  const displayName = profile?.full_name || profile?.email || 'Your account';
+  const displayName = profile?.full_name || profile?.email || 'Sua conta';
   const initial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase();
   const roleMeta = accountRole ? ROLE_META[accountRole] : null;
   const RoleIcon = roleMeta?.icon;
 
-  const currencyLabel =
-    CURRENCIES.find((c) => c.code === defaultCurrency)?.label ?? defaultCurrency;
   const themeName = THEMES.find((t) => t.id === theme)?.name ?? theme;
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const cap = (s: string) => {
+    const map: Record<string, string> = {
+      dark: 'escuro',
+      light: 'claro',
+      system: 'sistema',
+    };
+    const mapped = map[s.toLowerCase()] || s;
+    return mapped.charAt(0).toUpperCase() + mapped.slice(1);
+  };
 
   // Per-tile loading + subtitle. `null` counts render as a graceful
   // fallback so a single failed query never blanks a tile.
@@ -158,14 +159,14 @@ export function SettingsOverview({
       section: 'whatsapp',
       loading: whatsappLoading,
       subtitle: !whatsapp?.configured ? (
-        'Not set up yet'
+        'Não configurado'
       ) : whatsapp.connected ? (
         <>
-          <StatusDot tone="ok" /> Connected
+          <StatusDot tone="ok" /> Conectado
         </>
       ) : (
         <>
-          <StatusDot tone="muted" /> Needs reconnecting
+          <StatusDot tone="muted" /> Precisa reconectar
         </>
       ),
     },
@@ -174,12 +175,12 @@ export function SettingsOverview({
       loading: countsLoading,
       subtitle:
         counts?.members == null
-          ? 'View team members'
-          : `${counts.members} member${counts.members === 1 ? '' : 's'}${
+          ? 'Ver membros da equipe'
+          : `${counts.members} membro${counts.members === 1 ? '' : 's'}${
               counts.pendingInvites
-                ? ` · ${counts.pendingInvites} pending invite${
+                ? ` · ${counts.pendingInvites} convite${
                     counts.pendingInvites === 1 ? '' : 's'
-                  }`
+                  } pendente${counts.pendingInvites === 1 ? '' : 's'}`
                 : ''
             }`,
     },
@@ -188,32 +189,28 @@ export function SettingsOverview({
       loading: countsLoading,
       subtitle:
         counts?.templates == null
-          ? 'Manage message templates'
-          : `${counts.templates} template${counts.templates === 1 ? '' : 's'}${
+          ? 'Gerenciar modelos de mensagem'
+          : `${counts.templates} modelo${counts.templates === 1 ? '' : 's'}${
               counts.templatesPending
-                ? ` · ${counts.templatesPending} pending review`
+                ? ` · ${counts.templatesPending} pendente${
+                    counts.templatesPending === 1 ? '' : 's'
+                  } de revisão`
                 : ''
             }`,
     },
-    {
-      section: 'deals',
-      loading: false,
-      subtitle: `${defaultCurrency} — ${currencyLabel}`,
-    },
+
     {
       section: 'fields',
       loading: countsLoading,
       subtitle:
-        counts?.tags == null && counts?.customFields == null
-          ? 'Tags and custom fields'
-          : `${counts?.tags ?? 0} tag${counts?.tags === 1 ? '' : 's'} · ${
-              counts?.customFields ?? 0
-            } custom field${counts?.customFields === 1 ? '' : 's'}`,
+        counts?.tags == null
+          ? 'Tags e pastas de documentos'
+          : `${counts?.tags ?? 0} tag${counts?.tags === 1 ? '' : 's'}`,
     },
     {
       section: 'appearance',
       loading: false,
-      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+      subtitle: `Modo ${cap(mode)} · Destaque ${themeName}`,
     },
   ];
 
@@ -272,7 +269,7 @@ export function SettingsOverview({
                 <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {loading ? (
                     <>
-                      <Loader2 className="size-3 animate-spin" /> Loading…
+                      <Loader2 className="size-3 animate-spin" /> Carregando…
                     </>
                   ) : (
                     subtitle

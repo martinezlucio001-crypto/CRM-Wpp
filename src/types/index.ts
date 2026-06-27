@@ -98,6 +98,7 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  assigned_to?: string;
   created_at: string;
   updated_at: string;
 }
@@ -114,24 +115,6 @@ export interface ContactTag {
   id: string;
   contact_id: string;
   tag_id: string;
-}
-
-export interface CustomField {
-  id: string;
-  user_id: string;
-  /** Tenancy key — NOT NULL since migration 017. */
-  account_id: string;
-  field_name: string;
-  field_type: string;
-  field_options?: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface ContactCustomValue {
-  id: string;
-  contact_id: string;
-  custom_field_id: string;
-  value?: string;
 }
 
 export interface ContactNote {
@@ -310,12 +293,47 @@ export interface Deal {
   notes?: string;
   expected_close_date?: string;
   status?: DealStatus;
+  billing_type?: 'fixed' | 'success' | 'mixed';
+  billing_fixed_value?: number;
+  billing_percentage_value?: number;
+  payment_status?: 'pending' | 'paid';
+  contract_status?: 'not_sent' | 'sent' | 'signed';
   created_at: string;
   updated_at?: string;
   contact?: Contact;
   stage?: PipelineStage;
   assignee?: Profile;
+  installments?: DealInstallment[];
 }
+
+export interface ManualMessageTemplate {
+  id: string;
+  account_id: string;
+  name: string;
+  body_text: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DealInstallmentStatus = 'pending' | 'paid' | 'cancelled';
+export type DealPaymentMethod = 'pix' | 'credit_card' | 'debit_card' | 'boleto' | 'cash' | 'other';
+
+export interface DealInstallment {
+  id: string;
+  account_id: string;
+  deal_id: string;
+  amount: number;
+  due_date: string;
+  status: DealInstallmentStatus;
+  payment_method?: DealPaymentMethod;
+  receipt_url?: string | null;
+  paid_at?: string | null;
+  message_template_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  message_template?: ManualMessageTemplate;
+}
+
 
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
 export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
@@ -435,13 +453,6 @@ export interface AssignConversationStepConfig {
 }
 
 export interface UpdateContactFieldStepConfig {
-  /**
-   * Either a built-in contact column (`name` | `email` | `company`) or a
-   * custom field encoded as `custom:<custom_field_id>`. The `custom:` prefix
-   * is how the engine distinguishes a `contact_custom_values` write from a
-   * direct `contacts` column update. Older configs store the bare column name,
-   * so this stays backward compatible.
-   */
   field: string;
   /** Supports `{{ vars.* }}` / `{{ message.text }}` interpolation at runtime. */
   value: string;

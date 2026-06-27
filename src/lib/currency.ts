@@ -11,7 +11,7 @@
  */
 
 /** App-wide fallback when no account/deal currency is available. */
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "BRL";
 
 export interface CurrencyOption {
   /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */
@@ -28,40 +28,19 @@ export interface CurrencyOption {
  * list to offer more — nothing else needs to change.
  */
 export const CURRENCIES: CurrencyOption[] = [
-  { code: "USD", label: "US Dollar", symbol: "$" },
-  { code: "EUR", label: "Euro", symbol: "€" },
-  { code: "GBP", label: "British Pound", symbol: "£" },
-  { code: "INR", label: "Indian Rupee", symbol: "₹" },
-  { code: "AUD", label: "Australian Dollar", symbol: "A$" },
-  { code: "CAD", label: "Canadian Dollar", symbol: "C$" },
   { code: "BRL", label: "Brazilian Real", symbol: "R$" },
-  { code: "JPY", label: "Japanese Yen", symbol: "¥" },
-  { code: "CNY", label: "Chinese Yuan", symbol: "¥" },
-  { code: "AED", label: "UAE Dirham", symbol: "د.إ" },
-  { code: "ZAR", label: "South African Rand", symbol: "R" },
-  { code: "NGN", label: "Nigerian Naira", symbol: "₦" },
-  { code: "SGD", label: "Singapore Dollar", symbol: "S$" },
-  { code: "MXN", label: "Mexican Peso", symbol: "$" },
 ];
 
 /**
  * Format a deal value as a currency string. Whole-number output
  * (no minor units) — deal values are tracked to the dollar across
- * the app. `currency` defaults to USD so callers with nothing better
- * stay safe, but pass the account/deal currency wherever known.
- *
- * Total by design: `Intl.NumberFormat` throws a RangeError on a
- * structurally invalid currency code, and `deals.currency` carries
- * NO DB CHECK (only `accounts.default_currency` does), so legacy
- * rows, imports, or hand-edited data can hold malformed values like
- * "United States". We never let that crash a render — on a bad code
- * we fall back to "CODE 1,234".
+ * the app.
  */
 export function formatCurrency(
   value: number,
-  currency: string = DEFAULT_CURRENCY,
+  currency: string = "BRL",
 ): string {
-  const code = (currency || DEFAULT_CURRENCY).trim();
+  const code = "BRL";
   const amount = Number(value) || 0;
   try {
     return new Intl.NumberFormat(undefined, {
@@ -81,15 +60,13 @@ export function formatCurrency(
 
 /**
  * Compact currency for tight spaces (donut center, legend rows):
- * "$1.2M" / "€34.5k" / "₹900". Uses the currency's symbol from
- * CURRENCIES, falling back to the code when we don't carry a symbol.
+ * "R$1.2M" / "R$900".
  */
 export function formatCurrencyShort(
   value: number,
-  currency: string = DEFAULT_CURRENCY,
+  currency: string = "BRL",
 ): string {
-  const code = currency || DEFAULT_CURRENCY;
-  const symbol = CURRENCIES.find((c) => c.code === code)?.symbol ?? `${code} `;
+  const symbol = "R$";
   const v = Number(value || 0);
   if (v >= 1_000_000) return `${symbol}${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `${symbol}${(v / 1_000).toFixed(1)}k`;

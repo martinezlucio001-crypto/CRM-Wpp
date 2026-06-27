@@ -5,7 +5,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const h = vi.hoisted(() => ({
   state: {
     owned: null as { id: string } | null,
-    ownedCustomField: null as { id: string } | null,
     automations: [] as Record<string, unknown>[],
     steps: [] as Record<string, unknown>[],
     fromCalls: [] as string[],
@@ -32,17 +31,7 @@ vi.mock("./admin-client", () => {
       // ownership guard / condition read
       return { data: state.owned, error: null };
     }
-    if (table === "custom_fields") {
-      // account-scoped ownership lookup for a custom field definition
-      return { data: state.ownedCustomField, error: null };
-    }
-    if (table === "contact_custom_values") {
-      if (type === "upsert") {
-        state.upsertCalls.push({ table, payload: ops.payload });
-        return { data: null, error: null };
-      }
-      return { data: null, error: null };
-    }
+
     if (table === "automations") return { data: state.automations, error: null };
     if (table === "automation_logs") {
       if (type === "insert") return { data: { id: "log1" }, error: null };
@@ -101,7 +90,6 @@ const ACCOUNT = "acct-1";
 
 beforeEach(() => {
   h.state.owned = null;
-  h.state.ownedCustomField = null;
   h.state.automations = [];
   h.state.steps = [];
   h.state.fromCalls = [];
@@ -163,66 +151,6 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
   });
 });
 
-describe("update_contact_field — custom fields", () => {
-  it("upserts contact_custom_values when the field is account-owned", async () => {
-    h.state.owned = { id: "c1" };
-    h.state.ownedCustomField = { id: "cf1" };
-    h.state.automations = [automationWithUpdateStep()];
-    h.state.steps = [customStep("custom:cf1", "Premium")];
-
-    await runAutomationsForTrigger({
-      accountId: ACCOUNT,
-      triggerType: "new_message_received",
-      contactId: "c1",
-      context: {},
-    });
-
-    // No direct contacts column write for a custom field.
-    expect(h.state.updateCalls).toHaveLength(0);
-    expect(h.state.upsertCalls).toHaveLength(1);
-    expect(h.state.upsertCalls[0].payload).toEqual({
-      contact_id: "c1",
-      custom_field_id: "cf1",
-      value: "Premium",
-    });
-  });
-
-  it("interpolates {{ vars.* }} into the custom value", async () => {
-    h.state.owned = { id: "c1" };
-    h.state.ownedCustomField = { id: "cf1" };
-    h.state.automations = [automationWithUpdateStep()];
-    h.state.steps = [customStep("custom:cf1", "{{ vars.source }}")];
-
-    await runAutomationsForTrigger({
-      accountId: ACCOUNT,
-      triggerType: "new_message_received",
-      contactId: "c1",
-      context: { vars: { source: "WhatsApp Ad" } },
-    });
-
-    expect(h.state.upsertCalls).toHaveLength(1);
-    expect(
-      (h.state.upsertCalls[0].payload as { value: string }).value,
-    ).toBe("WhatsApp Ad");
-  });
-
-  it("refuses to write a custom field from another account", async () => {
-    h.state.owned = { id: "c1" };
-    h.state.ownedCustomField = null; // account-scoped lookup finds nothing
-    h.state.automations = [automationWithUpdateStep()];
-    h.state.steps = [customStep("custom:foreign-cf", "x")];
-
-    await runAutomationsForTrigger({
-      accountId: ACCOUNT,
-      triggerType: "new_message_received",
-      contactId: "c1",
-      context: {},
-    });
-
-    expect(h.state.upsertCalls).toHaveLength(0);
-    expect(h.state.updateCalls).toHaveLength(0);
-  });
-});
 
 function automationWithUpdateStep() {
   return {
@@ -243,16 +171,5 @@ function updateStep() {
     position: 0,
     parent_step_id: null,
     step_config: { field: "company", value: "pwned-by-automation" },
-  };
-}
-
-function customStep(field: string, value: string) {
-  return {
-    id: "s1",
-    automation_id: "a1",
-    step_type: "update_contact_field",
-    position: 0,
-    parent_step_id: null,
-    step_config: { field, value },
   };
 }

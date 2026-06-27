@@ -53,82 +53,67 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
   );
 
   const stats = useMemo(() => {
-    const active = deals.filter((d) => d.status !== "lost");
-    const openDeals = active.filter((d) => d.status !== "won");
+    // 1. Processos Ativos (status === 'open')
+    const activeDeals = deals.filter((d) => d.status === "open");
+    const activeCount = activeDeals.length;
 
-    const totalCount = active.length;
-    const totalValue = active.reduce((sum, d) => sum + Number(d.value || 0), 0);
-    const avgValue = totalCount > 0 ? totalValue / totalCount : 0;
+    // 2. Leads Totais (open deals in stages other than "Ganho")
+    const stageMap = new Map(sortedStages.map((s) => [s.id, s]));
+    const leadsDeals = activeDeals.filter((d) => {
+      const stage = stageMap.get(d.stage_id);
+      return stage ? stage.name !== "Ganho" : true;
+    });
+    const leadsCount = leadsDeals.length;
 
-    const stageById = new Map(sortedStages.map((s) => [s.id, s]));
-    const weightedValue = openDeals.reduce((sum, d) => {
-      const stage = stageById.get(d.stage_id);
-      if (!stage) return sum;
-      const prob = computeStageProbability(stage, sortedStages);
-      return sum + Number(d.value || 0) * prob;
-    }, 0);
+    // 3. Valor Médio (média do valor dos contratos ativos)
+    const totalActiveValue = activeDeals.reduce((sum, d) => sum + Number(d.value || 0), 0);
+    const avgActiveValue = activeCount > 0 ? totalActiveValue / activeCount : 0;
 
+    // 4. Leads Convertidos Este mês (status === 'won' e atualizado este mês)
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const thisMonth = (d: Deal) => {
       const ts = d.updated_at ?? d.created_at;
       return ts ? new Date(ts) >= monthStart : false;
     };
-    const wonThisMonth = deals.filter(
+    const convertedThisMonth = deals.filter(
       (d) => d.status === "won" && thisMonth(d),
-    ).length;
-    const lostThisMonth = deals.filter(
-      (d) => d.status === "lost" && thisMonth(d),
     ).length;
 
     return {
-      totalCount,
-      totalValue,
-      avgValue,
-      weightedValue,
-      wonThisMonth,
-      lostThisMonth,
+      activeCount,
+      leadsCount,
+      avgActiveValue,
+      convertedThisMonth,
     };
   }, [deals, sortedStages]);
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card/60 p-4 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card/60 p-4 sm:grid-cols-4">
         <Metric
           icon={<BarChart3 className="h-4 w-4 text-muted-foreground" />}
-          label="Total Deals"
-          value={String(stats.totalCount)}
-          tooltip="Count of every deal in this pipeline that isn't marked as Lost. Won deals are still included."
-        />
-        <Metric
-          icon={<DollarSign className="h-4 w-4 text-primary" />}
-          label="Pipeline Value"
-          value={formatCurrency(stats.totalValue, defaultCurrency)}
-          tooltip="Sum of the dollar values of all deals in this pipeline, excluding deals marked as Lost."
+          label="Processos Ativos"
+          value={String(stats.activeCount)}
+          tooltip="Total de processos ativos (não finalizados/perdidos)."
         />
         <Metric
           icon={<Target className="h-4 w-4 text-blue-400" />}
-          label="Avg Deal Size"
-          value={formatCurrency(stats.avgValue, defaultCurrency)}
-          tooltip="Pipeline Value divided by Total Deals — the average value of a single non-lost deal."
+          label="Leads Totais"
+          value={String(stats.leadsCount)}
+          tooltip="Total de potenciais clientes (leads ativos antes de fechar o contrato)."
         />
         <Metric
-          icon={<TrendingUp className="h-4 w-4 text-purple-400" />}
-          label="Weighted Value"
-          value={formatCurrency(stats.weightedValue, defaultCurrency)}
-          tooltip="Expected revenue: each open deal's value × its stage probability. First stage ≈ 10%, stages progress up to 90%, Won = 100%. Lost deals are excluded."
+          icon={<DollarSign className="h-4 w-4 text-primary" />}
+          label="Valor Médio"
+          value={formatCurrency(stats.avgActiveValue, defaultCurrency)}
+          tooltip="Média do valor dos processos/contratos ativos."
         />
         <Metric
-          icon={<Trophy className="h-4 w-4 text-primary" />}
-          label="Won This Month"
-          value={String(stats.wonThisMonth)}
-          tooltip="Deals marked as Won since the first day of the current month."
-        />
-        <Metric
-          icon={<XCircle className="h-4 w-4 text-red-400" />}
-          label="Lost This Month"
-          value={String(stats.lostThisMonth)}
-          tooltip="Deals marked as Lost since the first day of the current month."
+          icon={<Trophy className="h-4 w-4 text-purple-400" />}
+          label="Leads Convertidos Este Mês"
+          value={String(stats.convertedThisMonth)}
+          tooltip="Leads que assinaram contrato (ganhos) neste mês."
         />
       </div>
     </TooltipProvider>
@@ -156,7 +141,7 @@ function Metric({
             render={
               <button
                 type="button"
-                aria-label={`How ${label} is calculated`}
+                aria-label={`Como ${label} é calculado`}
                 className="ml-auto text-muted-foreground hover:text-foreground focus:outline-none"
               />
             }

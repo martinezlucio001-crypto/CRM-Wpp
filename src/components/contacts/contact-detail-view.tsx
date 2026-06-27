@@ -5,22 +5,23 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal } from '@/types';
+import type { Contact, Tag, Deal, Profile } from '@/types';
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from '@/components/ui/sheet';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
+import { DealBillingDetails } from '@/components/billing/deal-billing-details';
 import {
   Phone,
   Mail,
@@ -28,11 +29,12 @@ import {
   Copy,
   Check,
   Loader2,
-  Plus,
-  Trash2,
   Save,
-  X,
   DollarSign,
+  ChevronRight,
+  ChevronDown,
+  FileSignature,
+  Gavel,
 } from 'lucide-react';
 
 interface ContactDetailViewProps {
@@ -55,11 +57,13 @@ export function ContactDetailView({
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
-  // Details tab
+  // Details tab (includes basic details + custom fields)
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editCompany, setEditCompany] = useState('');
+  const [editAssignedTo, setEditAssignedTo] = useState('');
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [savingDetails, setSavingDetails] = useState(false);
 
   // Tags tab
@@ -67,21 +71,11 @@ export function ContactDetailView({
   const [contactTagIds, setContactTagIds] = useState<string[]>([]);
   const [savingTags, setSavingTags] = useState(false);
 
-  // Notes tab
-  const [notes, setNotes] = useState<ContactNote[]>([]);
-  const [newNote, setNewNote] = useState('');
-  const [savingNote, setSavingNote] = useState(false);
-  const [loadingNotes, setLoadingNotes] = useState(false);
 
-  // Custom fields tab
-  const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [customValues, setCustomValues] = useState<Record<string, string>>({});
-  const [savingCustom, setSavingCustom] = useState(false);
-  const [loadingCustom, setLoadingCustom] = useState(false);
-
-  // Deals tab
+  // Deals tab (Processos)
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
+  const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return;
@@ -99,6 +93,7 @@ export function ContactDetailView({
       setEditPhone(data.phone);
       setEditEmail(data.email ?? '');
       setEditCompany(data.company ?? '');
+      setEditAssignedTo(data.assigned_to ?? '');
     }
     setLoading(false);
   }, [contactId, supabase]);
@@ -117,42 +112,6 @@ export function ContactDetailView({
     }
   }, [contactId, supabase]);
 
-  const fetchNotes = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingNotes(true);
-
-    const { data } = await supabase
-      .from('contact_notes')
-      .select('*')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: false });
-
-    if (data) setNotes(data);
-    setLoadingNotes(false);
-  }, [contactId, supabase]);
-
-  const fetchCustomFields = useCallback(async () => {
-    if (!contactId) return;
-    setLoadingCustom(true);
-
-    const [fieldsRes, valuesRes] = await Promise.all([
-      supabase.from('custom_fields').select('*').order('field_name'),
-      supabase
-        .from('contact_custom_values')
-        .select('*')
-        .eq('contact_id', contactId),
-    ]);
-
-    if (fieldsRes.data) setCustomFields(fieldsRes.data);
-    if (valuesRes.data) {
-      const map: Record<string, string> = {};
-      valuesRes.data.forEach((v) => {
-        map[v.custom_field_id] = v.value ?? '';
-      });
-      setCustomValues(map);
-    }
-    setLoadingCustom(false);
-  }, [contactId, supabase]);
 
   const fetchDeals = useCallback(async () => {
     if (!contactId) return;
@@ -166,15 +125,25 @@ export function ContactDetailView({
     setLoadingDeals(false);
   }, [contactId, supabase]);
 
+  const fetchProfiles = useCallback(async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('full_name');
+    if (data) {
+      setProfiles(data as Profile[]);
+    }
+  }, [supabase]);
+
   useEffect(() => {
     if (open && contactId) {
       fetchContact();
       fetchTags();
-      fetchNotes();
-      fetchCustomFields();
       fetchDeals();
+      fetchProfiles();
+      setExpandedDealId(null);
     }
-  }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
+  }, [open, contactId, fetchContact, fetchTags, fetchDeals, fetchProfiles]);
 
   async function copyPhone() {
     if (!contact) return;
@@ -185,30 +154,36 @@ export function ContactDetailView({
 
   async function saveDetails() {
     if (!contactId || !editPhone.trim()) {
-      toast.error('Phone number is required');
+      toast.error('O número de telefone é obrigatório');
       return;
     }
 
     setSavingDetails(true);
-    const { error } = await supabase
-      .from('contacts')
-      .update({
-        name: editName.trim() || null,
-        phone: editPhone.trim(),
-        email: editEmail.trim() || null,
-        company: editCompany.trim() || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', contactId);
+    try {
+      // 1. Update basic details
+      const { error: contactError } = await supabase
+        .from('contacts')
+        .update({
+          name: editName.trim() || null,
+          phone: editPhone.trim(),
+          email: editEmail.trim() || null,
+          company: editCompany.trim() || null,
+          assigned_to: editAssignedTo || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', contactId);
 
-    if (error) {
-      toast.error('Failed to update contact');
-    } else {
-      toast.success('Contact updated');
+      if (contactError) throw contactError;
+
+      toast.success('Alterações salvas com sucesso');
       fetchContact();
       onUpdated();
+    } catch (err) {
+      console.error(err);
+      toast.error('Falha ao atualizar contato');
+    } finally {
+      setSavingDetails(false);
     }
-    setSavingDetails(false);
   }
 
   async function toggleTag(tagId: string) {
@@ -239,84 +214,6 @@ export function ContactDetailView({
     setSavingTags(false);
   }
 
-  async function addNote() {
-    if (!contactId || !newNote.trim()) return;
-    setSavingNote(true);
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user || !accountId) {
-      toast.error('Not authenticated');
-      setSavingNote(false);
-      return;
-    }
-
-    const { error } = await supabase.from('contact_notes').insert({
-      contact_id: contactId,
-      account_id: accountId,
-      user_id: user.id,
-      note_text: newNote.trim(),
-    });
-
-    if (error) {
-      toast.error('Failed to add note');
-    } else {
-      setNewNote('');
-      fetchNotes();
-      toast.success('Note added');
-    }
-    setSavingNote(false);
-  }
-
-  async function deleteNote(noteId: string) {
-    const { error } = await supabase
-      .from('contact_notes')
-      .delete()
-      .eq('id', noteId);
-
-    if (error) {
-      toast.error('Failed to delete note');
-    } else {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      toast.success('Note deleted');
-    }
-  }
-
-  async function saveCustomFields() {
-    if (!contactId) return;
-    setSavingCustom(true);
-
-    try {
-      // Delete existing values and re-insert
-      await supabase
-        .from('contact_custom_values')
-        .delete()
-        .eq('contact_id', contactId);
-
-      const rows = Object.entries(customValues)
-        .filter(([, val]) => val.trim())
-        .map(([fieldId, val]) => ({
-          contact_id: contactId,
-          custom_field_id: fieldId,
-          value: val.trim(),
-        }));
-
-      if (rows.length > 0) {
-        const { error } = await supabase
-          .from('contact_custom_values')
-          .insert(rows);
-        if (error) throw error;
-      }
-
-      toast.success('Custom fields saved');
-    } catch {
-      toast.error('Failed to save custom fields');
-    }
-    setSavingCustom(false);
-  }
-
   function getInitials(name?: string | null) {
     if (!name) return '?';
     return name
@@ -328,162 +225,178 @@ export function ContactDetailView({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="bg-popover border-border text-popover-foreground sm:max-w-lg w-full p-0"
-      >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[864px] w-[95vw] p-0 overflow-hidden h-[90vh] max-h-[720px] flex flex-col">
         {loading || !contact ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full flex-1">
             <Loader2 className="size-6 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
-            <SheetHeader className="p-4 border-b border-border/50">
-              <div className="flex items-center gap-3">
-                <Avatar className="size-12 bg-muted border border-border">
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+            <DialogHeader className="p-5 border-b border-border/50 shrink-0">
+              <div className="flex items-center gap-4">
+                <Avatar className="size-14 bg-muted border border-border">
+                  <AvatarFallback className="bg-primary/10 text-primary text-base font-semibold">
                     {getInitials(contact.name)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-popover-foreground truncate">
-                    {contact.name || 'Unknown'}
-                  </SheetTitle>
-                  <SheetDescription className="text-muted-foreground text-xs mt-0.5">
-                    Contact details
-                  </SheetDescription>
-                  <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                <div className="flex-1 min-w-0 text-left">
+                  <DialogTitle className="text-xl font-bold text-popover-foreground truncate">
+                    {contact.name || 'Sem nome'}
+                  </DialogTitle>
+                  <DialogDescription className="text-muted-foreground text-xs mt-0.5">
+                    Ficha cadastral do cliente
+                  </DialogDescription>
+                  <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-muted-foreground">
                     <button
                       onClick={copyPhone}
-                      className="flex items-center gap-1 hover:text-primary transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer"
                     >
-                      <Phone className="size-3" />
+                      <Phone className="size-3.5" />
                       {contact.phone}
                       {copiedPhone ? (
-                        <Check className="size-3 text-primary" />
+                        <Check className="size-3.5 text-primary" />
                       ) : (
-                        <Copy className="size-3" />
+                        <Copy className="size-3.5" />
                       )}
                     </button>
                     {contact.email && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="size-3" />
+                      <span className="flex items-center gap-1.5">
+                        <Mail className="size-3.5" />
                         {contact.email}
                       </span>
                     )}
                     {contact.company && (
-                      <span className="flex items-center gap-1">
-                        <Building2 className="size-3" />
+                      <span className="flex items-center gap-1.5">
+                        <Building2 className="size-3.5" />
                         {contact.company}
                       </span>
                     )}
                   </div>
                 </div>
               </div>
-            </SheetHeader>
+            </DialogHeader>
 
             {/* Tabs */}
-            <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">
-              <TabsList className="bg-muted/50 border-b border-border mx-4 mt-3">
+            <Tabs defaultValue="details" className="flex-1 flex flex-col overflow-hidden min-h-0">
+              <TabsList variant="line" className="w-full justify-start gap-6 border-b border-border/60 bg-transparent rounded-none h-11 px-6 shrink-0 p-0">
                 <TabsTrigger
                   value="details"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  className="px-1 py-3 text-xs font-semibold text-muted-foreground hover:text-foreground bg-transparent data-active:text-primary data-active:bg-transparent rounded-none h-full border-b-2 border-transparent data-active:border-primary"
                 >
-                  Details
+                  Detalhes
                 </TabsTrigger>
                 <TabsTrigger
                   value="tags"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  className="px-1 py-3 text-xs font-semibold text-muted-foreground hover:text-foreground bg-transparent data-active:text-primary data-active:bg-transparent rounded-none h-full border-b-2 border-transparent data-active:border-primary"
                 >
                   Tags
                 </TabsTrigger>
-                <TabsTrigger
-                  value="notes"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  Notes
-                </TabsTrigger>
-                <TabsTrigger
-                  value="custom"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  Custom Fields
-                </TabsTrigger>
+
                 <TabsTrigger
                   value="deals"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  className="px-1 py-3 text-xs font-semibold text-muted-foreground hover:text-foreground bg-transparent data-active:text-primary data-active:bg-transparent rounded-none h-full border-b-2 border-transparent data-active:border-primary"
                 >
-                  Deals
+                  Processos
                 </TabsTrigger>
               </TabsList>
 
               {/* Details Tab */}
-              <TabsContent value="details" className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">Name</Label>
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
+              <TabsContent value="details" className="flex-1 overflow-y-auto px-6 py-4 flex flex-col min-h-0 focus-visible:outline-none">
+                <div className="space-y-4 flex-1">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs font-semibold">Nome</Label>
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="bg-muted border-border text-foreground h-9 text-sm"
+                        placeholder="Nome completo"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs font-semibold">
+                        Telefone <span className="text-red-400">*</span>
+                      </Label>
+                      <Input
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        className="bg-muted border-border text-foreground h-9 text-sm"
+                        placeholder="+55..."
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">
-                      Phone <span className="text-red-400">*</span>
-                    </Label>
-                    <Input
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs font-semibold">E-mail</Label>
+                      <Input
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        className="bg-muted border-border text-foreground h-9 text-sm"
+                        placeholder="exemplo@email.com"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs font-semibold">Empresa</Label>
+                      <Input
+                        value={editCompany}
+                        onChange={(e) => setEditCompany(e.target.value)}
+                        className="bg-muted border-border text-foreground h-9 text-sm"
+                        placeholder="Nome da empresa"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">Email</Label>
-                    <Input
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5 col-span-2">
+                      <Label className="text-muted-foreground text-xs font-semibold">Responsável</Label>
+                      <select
+                        value={editAssignedTo}
+                        onChange={(e) => setEditAssignedTo(e.target.value)}
+                        className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">Não atribuído</option>
+                        {profiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.full_name || p.email}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-muted-foreground text-xs">Company</Label>
-                    <Input
-                      value={editCompany}
-                      onChange={(e) => setEditCompany(e.target.value)}
-                      className="bg-muted border-border text-foreground h-8 text-sm"
-                    />
-                  </div>
+
+                </div>
+
+                <div className="pt-4 border-t border-border mt-4 shrink-0">
                   <Button
                     onClick={saveDetails}
                     disabled={savingDetails}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
-                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground w-full h-10 font-medium"
                   >
                     {savingDetails ? (
-                      <Loader2 className="size-3.5 animate-spin" />
+                      <Loader2 className="size-4 animate-spin mr-2" />
                     ) : (
-                      <Save className="size-3.5" />
+                      <Save className="size-4 mr-2" />
                     )}
-                    Save Changes
+                    Salvar Alterações
                   </Button>
                 </div>
               </TabsContent>
 
               {/* Tags Tab */}
-              <TabsContent value="tags" className="flex-1 overflow-y-auto px-4 py-3">
+              <TabsContent value="tags" className="flex-1 overflow-y-auto px-6 py-4 focus-visible:outline-none">
                 <div className="space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Click a tag to add or remove it from this contact.
+                    Clique em uma tag para adicioná-la ou removê-la deste contato.
                   </p>
                   {allTags.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No tags available. Create tags in Settings.
+                      Nenhuma tag disponível. Crie tags em Configurações.
                     </p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 pt-2">
                       {allTags.map((tag) => {
                         const selected = contactTagIds.includes(tag.id);
                         return (
@@ -491,17 +404,17 @@ export function ContactDetailView({
                             key={tag.id}
                             onClick={() => toggleTag(tag.id)}
                             disabled={savingTags}
-                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
+                            className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition-all cursor-pointer border ${
                               selected
-                                ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
-                                : 'opacity-50 hover:opacity-80'
+                                ? 'ring-1 ring-primary border-primary'
+                                : 'opacity-65 hover:opacity-100 border-transparent'
                             }`}
                             style={{
-                              backgroundColor: tag.color + '20',
+                              backgroundColor: tag.color + '15',
                               color: tag.color,
                             }}
                           >
-                            {selected && <Check className="size-3 mr-1" />}
+                            {selected && <Check className="size-3 mr-1.5 animate-in fade-in zoom-in-50" />}
                             {tag.name}
                           </button>
                         );
@@ -511,178 +424,154 @@ export function ContactDetailView({
                 </div>
               </TabsContent>
 
-              {/* Notes Tab */}
-              <TabsContent value="notes" className="flex-1 flex flex-col min-h-0 px-4 py-3">
-                <div className="space-y-2 mb-3">
-                  <Textarea
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                    placeholder="Write a note..."
-                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground min-h-[60px] text-sm resize-none"
-                  />
-                  <Button
-                    onClick={addNote}
-                    disabled={!newNote.trim() || savingNote}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    size="sm"
-                  >
-                    {savingNote ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Plus className="size-3.5" />
-                    )}
-                    Add Note
-                  </Button>
-                </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2">
-                  {loadingNotes ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : notes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      No notes yet.
-                    </p>
-                  ) : (
-                    notes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="rounded-lg bg-muted/50 border border-border/50 p-3 group"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm text-muted-foreground whitespace-pre-wrap flex-1">
-                            {note.note_text}
-                          </p>
-                          <button
-                            onClick={() => deleteNote(note.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1.5">
-                          {new Date(note.created_at).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </TabsContent>
 
-              {/* Custom Fields Tab */}
-              <TabsContent value="custom" className="flex-1 overflow-y-auto px-4 py-3">
-                {loadingCustom ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : customFields.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No custom fields defined. Create them in Settings.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {customFields.map((field) => (
-                      <div key={field.id} className="space-y-1.5">
-                        <Label className="text-muted-foreground text-xs capitalize">
-                          {field.field_name}
-                        </Label>
-                        <Input
-                          value={customValues[field.id] ?? ''}
-                          onChange={(e) =>
-                            setCustomValues((prev) => ({
-                              ...prev,
-                              [field.id]: e.target.value,
-                            }))
-                          }
-                          placeholder={`Enter ${field.field_name}...`}
-                          className="bg-muted border-border text-foreground h-8 text-sm placeholder:text-muted-foreground"
-                        />
-                      </div>
-                    ))}
-                    <Button
-                      onClick={saveCustomFields}
-                      disabled={savingCustom}
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
-                      size="sm"
-                    >
-                      {savingCustom ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Save className="size-3.5" />
-                      )}
-                      Save Custom Fields
-                    </Button>
-                  </div>
-                )}
-              </TabsContent>
-
-              {/* Deals Tab */}
-              <TabsContent value="deals" className="flex-1 overflow-y-auto px-4 py-3">
+              {/* Deals Tab (Processos) */}
+              <TabsContent value="deals" className="flex-1 overflow-y-auto px-6 py-4 focus-visible:outline-none">
                 {loadingDeals ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="size-5 animate-spin text-primary" />
                   </div>
                 ) : deals.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No deals yet</p>
+                  <p className="text-xs text-muted-foreground italic">Nenhum processo vinculado a este contato.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {deals.map((deal) => (
-                      <div
-                        key={deal.id}
-                        className="rounded-lg border border-border bg-muted/50 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">
-                            {deal.title}
-                          </p>
-                          {deal.stage && (
-                            <span
-                              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                backgroundColor: `${deal.stage.color}20`,
-                                color: deal.stage.color,
-                              }}
-                            >
-                              {deal.stage.name}
-                            </span>
+                  <div className="space-y-3 pt-2">
+                    {deals.map((deal) => {
+                      const isExpanded = expandedDealId === deal.id;
+                      return (
+                        <div
+                          key={deal.id}
+                          className="rounded-lg border border-border bg-muted/20 hover:border-border/80 transition-colors overflow-hidden"
+                        >
+                          {/* Row Header */}
+                          <div
+                            onClick={() => setExpandedDealId(isExpanded ? null : deal.id)}
+                            className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/10 transition-colors select-none"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <button
+                                type="button"
+                                className="text-muted-foreground hover:text-foreground shrink-0"
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="size-4" />
+                                ) : (
+                                  <ChevronRight className="size-4" />
+                                )}
+                              </button>
+                              <span className="text-sm font-semibold text-foreground truncate">
+                                {deal.title}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="text-xs font-semibold text-foreground">
+                                {formatCurrency(
+                                  deal.value ?? 0,
+                                  deal.currency || defaultCurrency,
+                                )}
+                              </span>
+                              
+                              {deal.stage && (
+                                <span
+                                  className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                                  style={{
+                                    backgroundColor: `${deal.stage.color}15`,
+                                    color: deal.stage.color,
+                                  }}
+                                >
+                                  {deal.stage.name}
+                                </span>
+                              )}
+
+                              {/* Status Icons Row */}
+                              <div className="flex items-center gap-1.5 ml-2">
+                                {/* 1. Pagamento Icon */}
+                                {deal.payment_status === 'paid' ? (
+                                  <div 
+                                    title="Pagamento Realizado" 
+                                    className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors cursor-help shrink-0"
+                                  >
+                                    <span className="text-[11px] font-bold leading-none">$</span>
+                                  </div>
+                                ) : (
+                                  <div 
+                                    title="Pagamento Pendente" 
+                                    className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors cursor-help shrink-0"
+                                  >
+                                    <span className="text-[11px] font-bold leading-none">$</span>
+                                  </div>
+                                )}
+
+                                {/* 2. Contrato Icon */}
+                                {(() => {
+                                  let colorClass = "text-sky-400 bg-sky-500/20 hover:bg-sky-500/30";
+                                  let titleText = "Contrato Não Enviado";
+                                  if (deal.contract_status === 'sent') {
+                                    colorClass = "text-amber-500 bg-amber-500/20 hover:bg-amber-500/30";
+                                    titleText = "Contrato Enviado";
+                                  } else if (deal.contract_status === 'signed') {
+                                    colorClass = "text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30";
+                                    titleText = "Contrato Assinado";
+                                  }
+                                  return (
+                                    <div 
+                                      title={titleText} 
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors cursor-help shrink-0 ${colorClass}`}
+                                    >
+                                      <FileSignature className="h-3 w-3" />
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* 3. Sentença (Gavel) Icon */}
+                                {(() => {
+                                  let colorClass = "text-muted-foreground/60 bg-muted hover:bg-muted/80";
+                                  let titleText = "Processo em Andamento";
+                                  if (deal.status === 'won') {
+                                    colorClass = "text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30";
+                                    titleText = "Sentença Favorável (Vitória)";
+                                  } else if (deal.status === 'lost') {
+                                    colorClass = "text-red-400 bg-red-500/20 hover:bg-red-500/30";
+                                    titleText = "Sentença Desfavorável (Derrota)";
+                                  }
+                                  return (
+                                    <div 
+                                      title={titleText} 
+                                      className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors cursor-help shrink-0 ${colorClass}`}
+                                    >
+                                      <Gavel className="h-3 w-3" />
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expanded Content */}
+                          {isExpanded && (
+                            <div className="border-t border-border p-4 bg-muted/5 animate-in fade-in slide-in-from-top-1 duration-150">
+                              <DealBillingDetails
+                                dealId={deal.id}
+                                contact={contact}
+                                dealTitle={deal.title}
+                                dealValue={deal.value}
+                                dealBillingFixedValue={(deal as any).billing_fixed_value}
+                                dealBillingType={(deal as any).billing_type}
+                                onUpdated={fetchDeals}
+                              />
+                            </div>
                           )}
                         </div>
-                        <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="size-3" />
-                            {formatCurrency(
-                              deal.value ?? 0,
-                              deal.currency || defaultCurrency,
-                            )}
-                          </span>
-                          {deal.status && deal.status !== 'open' && (
-                            <span
-                              className={
-                                deal.status === 'won'
-                                  ? 'text-primary'
-                                  : 'text-red-400'
-                              }
-                            >
-                              {deal.status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </TabsContent>
             </Tabs>
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
+

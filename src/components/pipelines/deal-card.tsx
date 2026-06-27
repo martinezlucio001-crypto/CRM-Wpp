@@ -1,7 +1,7 @@
 "use client";
 
 import type { Deal, PipelineStage } from "@/types";
-import { Calendar, Check, X } from "lucide-react";
+import { Calendar, Check, X, FileSignature, Gavel } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 
 interface DealCardProps {
@@ -12,7 +12,7 @@ interface DealCardProps {
 }
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
+  return new Date(dateStr).toLocaleDateString("pt-BR", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -26,7 +26,7 @@ function initials(name?: string, fallback?: string) {
 }
 
 export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
-  const contactLabel = deal.contact?.name || deal.contact?.phone || "No contact";
+  const contactLabel = deal.contact?.name || deal.contact?.phone || "Sem contato";
   const assigneeLabel = deal.assignee?.full_name || null;
 
   return (
@@ -53,21 +53,71 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
       />
 
       <div className="flex items-start justify-between gap-2">
-        <h4 className="flex-1 text-sm font-semibold leading-snug text-foreground break-words">
+        <h4 className="flex-1 text-sm font-semibold leading-snug text-foreground break-words pr-1">
           {deal.title}
         </h4>
-        {deal.status === "won" && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-            <Check className="h-3 w-3" />
-            Won
-          </span>
-        )}
-        {deal.status === "lost" && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-400">
-            <X className="h-3 w-3" />
-            Lost
-          </span>
-        )}
+        
+        {/* Status Icons Row */}
+        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+          {/* 1. Pagamento Icon */}
+          {deal.payment_status === 'paid' ? (
+            <div 
+              title="Pagamento Realizado" 
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors cursor-help"
+            >
+              <span className="text-[11px] font-bold leading-none">$</span>
+            </div>
+          ) : (
+            <div 
+              title="Pagamento Pendente" 
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors cursor-help"
+            >
+              <span className="text-[11px] font-bold leading-none">$</span>
+            </div>
+          )}
+
+          {/* 2. Contrato Icon */}
+          {(() => {
+            let colorClass = "text-sky-400 bg-sky-500/20 hover:bg-sky-500/30";
+            let titleText = "Contrato Não Enviado";
+            if (deal.contract_status === 'sent') {
+              colorClass = "text-amber-500 bg-amber-500/20 hover:bg-amber-500/30";
+              titleText = "Contrato Enviado";
+            } else if (deal.contract_status === 'signed') {
+              colorClass = "text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30";
+              titleText = "Contrato Assinado";
+            }
+            return (
+              <div 
+                title={titleText} 
+                className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors cursor-help ${colorClass}`}
+              >
+                <FileSignature className="h-3 w-3" />
+              </div>
+            );
+          })()}
+
+          {/* 3. Sentença (Gavel) Icon */}
+          {(() => {
+            let colorClass = "text-muted-foreground/60 bg-muted hover:bg-muted/80";
+            let titleText = "Processo em Andamento";
+            if (deal.status === 'won') {
+              colorClass = "text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30";
+              titleText = "Sentença Favorável (Vitória)";
+            } else if (deal.status === 'lost') {
+              colorClass = "text-red-400 bg-red-500/20 hover:bg-red-500/30";
+              titleText = "Sentença Desfavorável (Derrota)";
+            }
+            return (
+              <div 
+                title={titleText} 
+                className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors cursor-help ${colorClass}`}
+              >
+                <Gavel className="h-3 w-3" />
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* Contact row */}

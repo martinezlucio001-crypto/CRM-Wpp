@@ -35,7 +35,7 @@ export function SessionsCard() {
       // triggers the usual redirect.
       const { error } = await supabase.auth.signOut({ scope: 'global' });
       if (error) {
-        toast.error(`Sign-out failed: ${error.message}`);
+        toast.error(`Falha ao desconectar: ${error.message}`);
         return;
       }
       window.location.href = '/login';
@@ -56,8 +56,8 @@ export function SessionsCard() {
             Active sessions
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            Sign out of every device where you&apos;re logged in — including
-            this one. Useful if you lost a laptop or shared your password.
+            Desconecte-se de todos os dispositivos em que você está logado — incluindo
+            este. Útil se você perdeu um laptop ou compartilhou sua senha.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -75,11 +75,10 @@ export function SessionsCard() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Sign out everywhere?</DialogTitle>
+            <DialogTitle>Sair de todos os lugares?</DialogTitle>
             <DialogDescription>
-              Every device logged into this account will be signed out and
-              will need to log in again. You will be redirected to the login
-              page.
+              Todos os dispositivos conectados nesta conta serão desconectados e
+              precisarão fazer login novamente. Você será redirecionado para a página de login.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -89,16 +88,16 @@ export function SessionsCard() {
               onClick={() => setOpen(false)}
               disabled={signingOut}
             >
-              Cancel
+              Cancelar
             </Button>
             <Button type="button" onClick={onConfirm} disabled={signingOut}>
               {signingOut ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Signing out…
+                  Saindo…
                 </>
               ) : (
-                'Sign out everywhere'
+                'Sair de todos os lugares'
               )}
             </Button>
           </DialogFooter>
